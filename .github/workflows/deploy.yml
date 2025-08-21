@@ -343,11 +343,11 @@ jobs:
             # Build Docker images using docker-compose
             echo "🏗️ Building application images..."
             cd "$DEPLOY_DIR"
-            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml build
+            docker-compose -f docker-compose.prod.yml build
             
             # Start new containers (previous containers already stopped)
             echo "🚀 Starting new containers..."
-            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml --env-file .env.prod up -d
+            docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
             
             # Wait for containers to be ready
             sleep 30
@@ -355,14 +355,14 @@ jobs:
             # Run post-deployment commands
             echo "📦 Checking if vendor directory exists..."
             cd "$DEPLOY_DIR"
-            if ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php ls vendor >/dev/null 2>&1; then
+            if docker-compose -f docker-compose.prod.yml exec -T php ls vendor >/dev/null 2>&1; then
               echo "✅ Vendor directory exists, skipping composer install"
             else
               echo "📥 Vendor directory missing, trying to install dependencies..."
               # Check if composer is available first
-              if ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
+              if docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
                 echo "🎵 Composer found, installing dependencies..."
-                ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader || {
+                docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader || {
                   echo "⚠️  Composer install failed, but continuing deployment..."
                 }
               else
@@ -373,11 +373,11 @@ jobs:
               fi
             fi
             # Run Symfony commands if console is available
-            if ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php ls bin/console >/dev/null 2>&1; then
+            if docker-compose -f docker-compose.prod.yml exec -T php ls bin/console >/dev/null 2>&1; then
               echo "🎛️ Running Symfony console commands..."
-              ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
-              ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
-              ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
+              docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
+              docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
+              docker-compose -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
             else
               echo "⚠️ Symfony console not found, skipping console commands"
             fi
