@@ -26,8 +26,8 @@ services:
             WORDPRESS_DEBUG_DISPLAY: 'false'
             WORDPRESS_CONFIG_EXTRA: define('WP_ENVIRONMENT_TYPE', 'development');
         volumes:
-            - /home/fifi/Documents/Projects/symfony/artififi/:/var/www/html
-            - /home/fifi/Documents/Projects/symfony/artififi/docker/dev/php/config.ini:/etc/php81/conf.d/99_dev.ini:ro
+            - ./:/var/www/html
+            - ./docker/dev/php/config.ini:/etc/php81/conf.d/99_dev.ini:ro
         extra_hosts:
             - host.docker.internal:host-gateway
 
@@ -37,8 +37,8 @@ services:
             dockerfile: docker/dk.nginx.Dockerfile
         restart: 'no'
         volumes:
-            - /home/fifi/Documents/Projects/symfony/artififi/public/:/var/www/html/public:ro
-            - /home/fifi/Documents/Projects/symfony/artififi/wp/:/var/www/html/wp:ro
+            - ./public:/var/www/html/public:ro
+            - ./wp:/var/www/html/wp:ro
         depends_on:
             - php
             - traefik
