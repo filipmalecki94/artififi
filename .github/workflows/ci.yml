@@ -24,26 +24,64 @@ jobs:
 
       # Build only potrzebne serwisy (php + mysql)
       - name: Build Docker images
-        run: docker compose -f docker-compose.yml build php mysql
+        run: |
+          echo "🏗️ Building Docker images..."
+          echo "Building PHP and MySQL containers..."
+          docker compose -f docker-compose.yml build php mysql
+          echo "✅ Docker images built successfully"
 
       - name: Start containers
-        run: docker compose -f docker-compose.yml up -d php mysql
+        run: |
+          echo "🚀 Starting containers..."
+          echo "Starting PHP and MySQL containers in detached mode..."
+          docker compose -f docker-compose.yml up -d php mysql
+          echo "⏳ Waiting for containers to be ready..."
+          sleep 10
+          echo "📊 Container status:"
+          docker compose -f docker-compose.yml ps
+          echo "✅ Containers started successfully"
 
       # Composer install w kontenerze php
       - name: Install dependencies
-        run: docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist
+        run: |
+          echo "📦 Installing PHP dependencies..."
+          echo "Running composer install in PHP container..."
+          docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist --verbose
+          echo "📋 Checking installed packages:"
+          docker compose -f docker-compose.yml exec -T php composer show --direct
+          echo "✅ Dependencies installed successfully"
 
       # Static analysis
       - name: Run PHPStan
-        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpstan analyse --memory-limit=512M
+        run: |
+          echo "🔍 Running PHPStan static analysis..."
+          echo "Analyzing PHP code for type errors and bugs..."
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpstan analyse --memory-limit=512M
+          echo "✅ PHPStan analysis completed"
 
       - name: Run PHPCS
-        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpcs --standard=WordPress --extensions=php src/ wp/
+        run: |
+          echo "📏 Running PHPCS code style check..."
+          echo "Checking code style against WordPress standards..."
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpcs --standard=WordPress --extensions=php src/ wp/ --report=summary
+          echo "✅ PHPCS code style check completed"
 
       # PHPUnit
       - name: Run PHPUnit
-        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpunit --testdox
+        run: |
+          echo "🧪 Running PHPUnit tests..."
+          echo "Executing unit and integration tests..."
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpunit --testdox --verbose
+          echo "📊 Test coverage summary:"
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpunit --coverage-text --coverage-filter=src/
+          echo "✅ PHPUnit tests completed"
 
       - name: Stop containers
         if: always()
-        run: docker compose -f docker-compose.yml down -v
+        run: |
+          echo "🛑 Stopping and cleaning up containers..."
+          echo "Stopping all containers and removing volumes..."
+          docker compose -f docker-compose.yml down -v
+          echo "🧹 Cleaning up Docker system..."
+          docker system prune -f
+          echo "✅ Cleanup completed successfully"
