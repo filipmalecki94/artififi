@@ -193,30 +193,82 @@ jobs:
             
             # Create deployment directory and clone/update repository
             echo "📁 Managing repository..."
+            echo "🔗 Repository URL: ${{ github.server_url }}/${{ github.repository }}.git"
+            echo "🌿 Target branch: ${{ github.ref_name }}"
+            echo "📂 Target directory: $HOME/artififi"
+            
+            # Test GitHub connectivity
+            echo "🌐 Testing GitHub connectivity..."
+            if ping -c 3 github.com >/dev/null 2>&1; then
+              echo "✅ GitHub is reachable"
+            else
+              echo "❌ GitHub is not reachable"
+              exit 1
+            fi
+            
+            # Test if repository is accessible
+            echo "🔐 Testing repository access..."
+            if git ls-remote --heads ${{ github.server_url }}/${{ github.repository }}.git >/dev/null 2>&1; then
+              echo "✅ Repository is accessible"
+            else
+              echo "❌ Repository is not accessible (may be private or authentication failed)"
+              echo "🔧 Trying with HTTPS clone..."
+            fi
+            
             if [ ! -d "$HOME/artififi" ]; then
               echo "📥 Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi || {
-                echo "❌ Git clone failed!"
-                exit 1
-              }
+              echo "🔄 Attempting git clone..."
+              if git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi; then
+                echo "✅ Git clone successful"
+              else
+                echo "❌ Git clone failed with exit code $?"
+                echo "🔍 Trying alternative methods..."
+                
+                # Try with different URL format
+                echo "🔄 Trying alternative URL format..."
+                if git clone https://github.com/${{ github.repository }}.git $HOME/artififi; then
+                  echo "✅ Alternative clone successful"
+                else
+                  echo "❌ All clone methods failed"
+                  exit 1
+                fi
+              fi
+              
               cd $HOME/artififi || {
                 echo "❌ Cannot cd to artififi directory!"
                 exit 1
               }
             else
-              echo "📥 Updating repository..."
+              echo "📥 Updating existing repository..."
               cd $HOME/artififi || {
                 echo "❌ Cannot cd to artififi directory!"
                 exit 1
               }
-              git fetch origin || {
-                echo "❌ Git fetch failed!"
+              
+              echo "🔍 Current repository status:"
+              git remote -v
+              git branch -a
+              
+              echo "🔄 Fetching updates..."
+              if git fetch origin; then
+                echo "✅ Git fetch successful"
+              else
+                echo "❌ Git fetch failed with exit code $?"
                 exit 1
-              }
-              git reset --hard origin/${{ github.ref_name }} || {
-                echo "❌ Git reset failed!"
-                exit 1
-              }
+              fi
+              
+              echo "🔄 Resetting to target branch..."
+              if git reset --hard origin/${{ github.ref_name }}; then
+                echo "✅ Git reset successful"
+              else
+                echo "❌ Git reset failed with exit code $?"
+                echo "🔧 Trying to checkout branch first..."
+                git checkout ${{ github.ref_name }} || git checkout -b ${{ github.ref_name }} origin/${{ github.ref_name }}
+                git reset --hard origin/${{ github.ref_name }} || {
+                  echo "❌ Final git reset failed"
+                  exit 1
+                }
+              fi
             fi
             
             echo "✅ Repository ready at: $(pwd)"
