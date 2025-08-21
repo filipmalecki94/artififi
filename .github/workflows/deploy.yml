@@ -215,36 +215,32 @@ jobs:
               echo "🔧 Trying with HTTPS clone..."
             fi
             
-            # Go to existing directory or create new one
-            if [ -d "$HOME/artififi" ]; then
-              echo "📥 Directory exists, updating repository..."
-              cd $HOME/artififi || {
-                echo "❌ Cannot cd to artififi directory!"
+            # Create timestamped deployment directory
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            DEPLOY_DIR="$HOME/artififi/releases/$TIMESTAMP"
+            
+            echo "📁 Creating new deployment directory: $DEPLOY_DIR"
+            mkdir -p "$DEPLOY_DIR"
+            
+            echo "📥 Cloning repository to timestamped directory..."
+            if git clone ${{ github.server_url }}/${{ github.repository }}.git "$DEPLOY_DIR"; then
+              echo "✅ Git clone successful"
+            else
+              echo "❌ Git clone failed, trying alternative URL..."
+              git clone https://github.com/${{ github.repository }}.git "$DEPLOY_DIR" || {
+                echo "❌ All clone methods failed"
                 exit 1
               }
-              
-              echo "🔄 Pulling latest changes..."
-              git pull origin ${{ github.ref_name }} || {
-                echo "⚠️  Git pull failed, trying reset..."
-                git fetch origin
-                git reset --hard origin/${{ github.ref_name }}
-              }
-            else
-              echo "📥 Directory doesn't exist, cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi || {
-                echo "❌ Git clone failed, trying alternative URL..."
-                git clone https://github.com/${{ github.repository }}.git $HOME/artififi || {
-                  echo "❌ All clone methods failed"
-                  exit 1
-                }
-              }
-              cd $HOME/artififi
             fi
             
+            cd "$DEPLOY_DIR"
             echo "✅ Repository ready at: $(pwd)"
-            echo "📋 Repository status:"
-            git status --short
-            echo "📋 Current branch: $(git branch --show-current)"
+            echo "📋 Commit info:"
+            git log --oneline -1
+            
+            # Store deployment info for later use
+            echo "DEPLOY_DIR=$DEPLOY_DIR" >> ~/.deploy_vars
+            echo "TIMESTAMP=$TIMESTAMP" >> ~/.deploy_vars
             
             # Create production environment file
             echo "📝 Creating production environment configuration..."
@@ -298,8 +294,12 @@ jobs:
               ${DOCKER_CMD:-docker} tag php:8.1-fpm ghcr.io/phpsword/php:8.1
             fi
             
+            # Load deployment variables
+            source ~/.deploy_vars
+            
             # Build Docker images using docker-compose
             echo "🏗️ Building application images..."
+            cd "$DEPLOY_DIR"
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml build
             
             # Stop existing containers
@@ -313,6 +313,7 @@ jobs:
             
             # Run post-deployment commands
             echo "📦 Checking if vendor directory exists..."
+            cd "$DEPLOY_DIR"
             if ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php test -d vendor; then
               echo "✅ Vendor directory exists, skipping composer install"
             else
@@ -330,7 +331,12 @@ jobs:
             # Cleanup old images
             ${DOCKER_CMD:-docker} image prune -f
             
+            # Show deployment summary
             echo "✅ Deployment completed successfully!"
+            echo "📁 Deployed to: $DEPLOY_DIR"
+            echo "🕐 Timestamp: $TIMESTAMP"
+            echo "📋 Available releases:"
+            ls -la $HOME/artififi/releases/ || echo "No previous releases found"
 
 
 
