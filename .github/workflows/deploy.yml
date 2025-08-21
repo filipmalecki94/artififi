@@ -353,27 +353,31 @@ jobs:
             sleep 30
             
             # Run post-deployment commands
-            echo "📦 Checking if vendor directory exists..."
+            echo "📦 Setting up PHP dependencies..."
             cd "$DEPLOY_DIR"
-            if docker-compose -f docker-compose.prod.yml exec -T php ls vendor >/dev/null 2>&1; then
-              echo "✅ Vendor directory exists, skipping composer install"
-            else
-              echo "📥 Vendor directory missing, trying to install dependencies..."
-              # Check if composer is available first
-              if docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
-                echo "🎵 Composer found, installing dependencies..."
-                docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader || {
-                  echo "⚠️  Composer install failed, but continuing deployment..."
+            
+            # Install Composer if not present
+            if ! docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
+              echo "🎵 Installing Composer..."
+              docker-compose -f docker-compose.prod.yml exec -T php sh -c "curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
+                echo "⚠️ Composer installation failed, trying alternative method..."
+                docker-compose -f docker-compose.prod.yml exec -T php sh -c "wget -O - https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
+                  echo "❌ Could not install Composer, skipping dependency installation"
                 }
-              else
-                echo "⚠️  Composer not found in container"
-                echo "💡 Dependencies should be installed during build phase"
-                echo "💡 Or the base image should include vendor/ directory"
-                echo "💡 Continuing deployment without installing dependencies..."
-              fi
+              }
+            else
+              echo "✅ Composer already installed"
+            fi
+            
+            # Install dependencies if composer is available
+            if docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
+              echo "📥 Installing PHP dependencies..."
+              docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction || {
+                echo "⚠️ Composer install failed, but continuing..."
+              }
             fi
             # Run Symfony commands if console is available
-            if docker-compose -f docker-compose.prod.yml exec -T php ls bin/console >/dev/null 2>&1; then
+            if docker-compose -f docker-compose.prod.yml exec -T php sh -c '[ -f bin/console ]' >/dev/null 2>&1; then
               echo "🎛️ Running Symfony console commands..."
               docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
               docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
