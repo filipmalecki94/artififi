@@ -1,0 +1,52 @@
+###> symfony/framework-bundle ###
+/.env.local
+/.env.local.php
+/.env.*.local
+/config/secrets/prod/prod.decrypt.private.php
+/public/bundles/
+/var/
+/vendor/
+###< symfony/framework-bundle ###
+
+###> phpunit/phpunit ###
+/phpunit.xml
+.phpunit.result.cache
+###< phpunit/phpunit ###
+
+###> symfony/phpunit-bridge ###
+.phpunit.result.cache
+/phpunit.xml
+###< symfony/phpunit-bridge ###
+
+###> symfony/asset-mapper ###
+/public/assets/
+/assets/vendor/
+###< symfony/asset-mapper ###
+
+###> phpsword/sword-bundle ###
+/wp/*
+!wp/wp-config.php
+!wp/content
+wp/content/*
+!wp/content/themes
+wp/content/themes/twenty*
+###< phpsword/sword-bundle ###
+
+# dodatkowe pliki
+/.env
+/.env.test
+composer.phar
+composer.lock
+/build/
+/node_modules/
+/.idea/
+/.vscode/
+/.history/
+*.code-workspace
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+docker-compose.override.yml
+docker/.env
