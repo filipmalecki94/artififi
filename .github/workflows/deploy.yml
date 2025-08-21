@@ -242,6 +242,28 @@ jobs:
             echo "DEPLOY_DIR=$DEPLOY_DIR" >> ~/.deploy_vars
             echo "TIMESTAMP=$TIMESTAMP" >> ~/.deploy_vars
             
+            # Stop only project-related containers from previous deployments
+            echo "🛑 Stopping artififi project containers..."
+            docker ps --filter "name=artififi" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No project containers to stop"
+            docker ps -a --filter "name=artififi" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No project containers to remove"
+            
+            # Clean up project-specific Docker networks
+            echo "🌐 Cleaning up project Docker networks..."
+            docker network ls --filter name=artififi --format "{{.Name}}" | xargs -r docker network rm 2>/dev/null || echo "No project networks to remove"
+            # Also clean up any orphaned networks
+            docker network prune -f 2>/dev/null || echo "No orphaned networks to remove"
+            
+            # Clean up old project Docker images
+            echo "🗂️ Cleaning up old project Docker images..."
+            docker images --filter "reference=artififi-*" --format "{{.ID}}" | xargs -r docker rmi 2>/dev/null || echo "No old project images to remove"
+            
+            # Clean up old releases (keep only last 3)
+            echo "🧹 Cleaning up old releases..."
+            cd $HOME/artififi/releases
+            ls -1t | tail -n +4 | xargs -r rm -rf
+            echo "📋 Remaining releases:"
+            ls -la
+            
             # Create production environment file
             echo "📝 Creating production environment configuration..."
             cat > .env.prod << EOF
@@ -302,10 +324,8 @@ jobs:
             cd "$DEPLOY_DIR"
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml build
             
-            # Stop existing containers
-            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml down || true
-            
-            # Start new containers
+            # Start new containers (previous containers already stopped)
+            echo "🚀 Starting new containers..."
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml --env-file .env.prod up -d
             
             # Wait for containers to be ready
