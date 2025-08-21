@@ -193,7 +193,6 @@ jobs:
 
 
       - name: Deploy via SSH
-        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_KEY != '' }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -205,13 +204,13 @@ jobs:
             echo "🚀 Starting deployment on production server..."
             
             # Create deployment directory and clone/update repository
-            if [ ! -d "~/artififi" ]; then
+            if [ ! -d "$HOME/artififi" ]; then
               echo "📥 Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git ~/artififi
-              cd ~/artififi
+              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi
+              cd $HOME/artififi
             else
               echo "📥 Updating repository..."
-              cd ~/artififi
+              cd $HOME/artififi
               git fetch origin
               git reset --hard origin/${{ github.ref_name }}
             fi
@@ -248,6 +247,12 @@ jobs:
             WORDPRESS_NONCE_SALT=${{ secrets.WORDPRESS_NONCE_SALT }}
             WORDPRESS_DEBUG=false
             WORDPRESS_DEBUG_DISPLAY=false
+            
+            # Database Root Password
+            MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+            
+            # Production Domain for Traefik
+            PRODUCTION_DOMAIN=${{ vars.APP_DOMAIN }}
             
             # Docker Images
             PHP_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php:${{ github.sha }}

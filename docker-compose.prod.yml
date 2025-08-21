@@ -2,34 +2,22 @@ version: "3.8"
 
 services:
     php:
-        build:
-            context: .
-            dockerfile: docker/dk.php.Dockerfile
-            args:
-                PHP_VERSION: 8.1
-        image: 'changeme/changeme-php:staging'
-        restart: 'no'
-        environment:
-            WORDPRESS_SITE_URL: https://staging.example.com
-            WORDPRESS_DB_NAME: sword_app
-            WORDPRESS_DB_USER: ChangeMe
-            WORDPRESS_DB_PASSWORD: ChangeMe
-            WORDPRESS_DB_HOST: mysql
-            WORDPRESS_AUTH_KEY: ChangeMe
-            WORDPRESS_SECURE_AUTH_KEY: ChangeMe
-            WORDPRESS_LOGGED_IN_KEY: ChangeMe
-            WORDPRESS_NONCE_KEY: ChangeMe
-            WORDPRESS_AUTH_SALT: ChangeMe
-            WORDPRESS_SECURE_AUTH_SALT: ChangeMe
-            WORDPRESS_LOGGED_IN_SALT: ChangeMe
-            WORDPRESS_NONCE_SALT: ChangeMe
+        image: '${PHP_IMAGE:-changeme/changeme-php:staging}'
+        restart: unless-stopped
+        env_file:
+            - .env.prod
+        volumes:
+            - ./:/var/www/html
+            - app-data:/var/www/html/var
+            - app-uploads:/var/www/html/public/uploads
 
     nginx:
-        build:
-            context: .
-            dockerfile: docker/dk.nginx.Dockerfile
-        image: 'changeme/changeme-nginx:staging'
-        restart: 'no'
+        image: '${NGINX_IMAGE:-changeme/changeme-nginx:staging}'
+        restart: unless-stopped
+        volumes:
+            - ./public:/var/www/html/public:ro
+            - ./wp:/var/www/html/wp:ro
+            - app-uploads:/var/www/html/public/uploads:ro
         depends_on:
             - php
             - traefik
@@ -38,19 +26,19 @@ services:
             - traefik
         labels:
             - traefik.enable=true
-            - traefik.http.routers.${APP_NAME:-sword}.rule=Host(`staging.example.com`)
+            - traefik.http.routers.${APP_NAME:-sword}.rule=Host(`${PRODUCTION_DOMAIN:-staging.example.com}`)
             - traefik.http.routers.${APP_NAME:-sword}.tls=true
             - traefik.http.routers.${APP_NAME:-sword}.entrypoints=websecure
             - traefik.http.services.${APP_NAME:-sword}.loadbalancer.server.port=80
 
     mysql:
         image: mysql:8.0.37
-        restart: 'no'
+        restart: unless-stopped
         environment:
-            - MYSQL_USER=ChangeMe
-            - MYSQL_PASSWORD=ChangeMe
-            - MYSQL_ROOT_PASSWORD=root
-            - MYSQL_DATABASE=sword_app
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+            MYSQL_DATABASE: ${WORDPRESS_DB_NAME:-sword_app}
+            MYSQL_USER: ${WORDPRESS_DB_USER:-user}
+            MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-user}
         volumes:
             - mysql_data:/var/lib/mysql
 
@@ -73,6 +61,8 @@ services:
 
 volumes:
     mysql_data:
+    app-data:
+    app-uploads:
 
 networks:
     traefik:
