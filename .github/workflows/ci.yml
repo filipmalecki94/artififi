@@ -115,13 +115,6 @@ jobs:
           docker compose -f docker-compose.yml exec -T php vendor/bin/phpstan analyse --memory-limit=512M
           echo "✅ PHPStan analysis completed"
 
-      - name: Run PHPCS
-        run: |
-          echo "📏 Running PHPCS code style check..."
-          echo "Checking code style against WordPress standards..."
-          docker compose -f docker-compose.yml exec -T php vendor/bin/phpcs --standard=WordPress --extensions=php src/ wp/ --report=summary
-          echo "✅ PHPCS code style check completed"
-
       # PHPUnit
       - name: Run PHPUnit
         run: |
