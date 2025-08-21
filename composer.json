@@ -49,6 +49,7 @@
     },
     "require-dev": {
         "ergebnis/composer-normalize": "^2.42",
+        "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^9.5",
         "roave/security-advisories": "dev-latest",
         "symfony/browser-kit": "~6.4.0",

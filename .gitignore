@@ -50,3 +50,7 @@ Thumbs.db
 *.swo
 docker-compose.override.yml
 docker/.env
+
+###> phpstan/phpstan ###
+phpstan.neon
+###< phpstan/phpstan ###
