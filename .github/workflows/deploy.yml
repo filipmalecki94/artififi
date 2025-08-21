@@ -215,60 +215,30 @@ jobs:
               echo "🔧 Trying with HTTPS clone..."
             fi
             
-            if [ ! -d "$HOME/artififi" ]; then
-              echo "📥 Cloning repository..."
-              echo "🔄 Attempting git clone..."
-              if git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi; then
-                echo "✅ Git clone successful"
-              else
-                echo "❌ Git clone failed with exit code $?"
-                echo "🔍 Trying alternative methods..."
-                
-                # Try with different URL format
-                echo "🔄 Trying alternative URL format..."
-                if git clone https://github.com/${{ github.repository }}.git $HOME/artififi; then
-                  echo "✅ Alternative clone successful"
-                else
-                  echo "❌ All clone methods failed"
-                  exit 1
-                fi
-              fi
-              
+            # Go to existing directory or create new one
+            if [ -d "$HOME/artififi" ]; then
+              echo "📥 Directory exists, updating repository..."
               cd $HOME/artififi || {
                 echo "❌ Cannot cd to artififi directory!"
                 exit 1
+              }
+              
+              echo "🔄 Pulling latest changes..."
+              git pull origin ${{ github.ref_name }} || {
+                echo "⚠️  Git pull failed, trying reset..."
+                git fetch origin
+                git reset --hard origin/${{ github.ref_name }}
               }
             else
-              echo "📥 Updating existing repository..."
-              cd $HOME/artififi || {
-                echo "❌ Cannot cd to artififi directory!"
-                exit 1
-              }
-              
-              echo "🔍 Current repository status:"
-              git remote -v
-              git branch -a
-              
-              echo "🔄 Fetching updates..."
-              if git fetch origin; then
-                echo "✅ Git fetch successful"
-              else
-                echo "❌ Git fetch failed with exit code $?"
-                exit 1
-              fi
-              
-              echo "🔄 Resetting to target branch..."
-              if git reset --hard origin/${{ github.ref_name }}; then
-                echo "✅ Git reset successful"
-              else
-                echo "❌ Git reset failed with exit code $?"
-                echo "🔧 Trying to checkout branch first..."
-                git checkout ${{ github.ref_name }} || git checkout -b ${{ github.ref_name }} origin/${{ github.ref_name }}
-                git reset --hard origin/${{ github.ref_name }} || {
-                  echo "❌ Final git reset failed"
+              echo "📥 Directory doesn't exist, cloning repository..."
+              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi || {
+                echo "❌ Git clone failed, trying alternative URL..."
+                git clone https://github.com/${{ github.repository }}.git $HOME/artififi || {
+                  echo "❌ All clone methods failed"
                   exit 1
                 }
-              fi
+              }
+              cd $HOME/artififi
             fi
             
             echo "✅ Repository ready at: $(pwd)"
@@ -342,7 +312,17 @@ jobs:
             sleep 30
             
             # Run post-deployment commands
-            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
+            echo "📦 Checking if vendor directory exists..."
+            if ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php test -d vendor; then
+              echo "✅ Vendor directory exists, skipping composer install"
+            else
+              echo "📥 Vendor directory missing, trying to install dependencies..."
+              # Try composer install, but don't fail if composer is not available
+              ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader || {
+                echo "⚠️  Composer install failed, but continuing deployment..."
+                echo "💡 Make sure your Docker image includes vendor/ directory or has Composer installed"
+              }
+            fi
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod
             ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || true
