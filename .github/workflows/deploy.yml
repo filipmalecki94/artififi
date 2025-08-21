@@ -137,17 +137,58 @@ jobs:
             
             echo "🚀 Starting deployment on production server..."
             
+            # Check if git is installed
+            echo "🔧 Checking prerequisites..."
+            if ! command -v git >/dev/null 2>&1; then
+              echo "❌ Git is not installed!"
+              exit 1
+            fi
+            echo "✅ Git version: $(git --version)"
+            
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "❌ Docker is not installed!"
+              exit 1
+            fi
+            echo "✅ Docker version: $(docker --version)"
+            
+            if ! command -v docker-compose >/dev/null 2>&1; then
+              echo "❌ Docker Compose is not installed!"
+              exit 1
+            fi
+            echo "✅ Docker Compose version: $(docker-compose --version)"
+            
             # Create deployment directory and clone/update repository
+            echo "📁 Managing repository..."
             if [ ! -d "$HOME/artififi" ]; then
               echo "📥 Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi
-              cd $HOME/artififi
+              git clone ${{ github.server_url }}/${{ github.repository }}.git $HOME/artififi || {
+                echo "❌ Git clone failed!"
+                exit 1
+              }
+              cd $HOME/artififi || {
+                echo "❌ Cannot cd to artififi directory!"
+                exit 1
+              }
             else
               echo "📥 Updating repository..."
-              cd $HOME/artififi
-              git fetch origin
-              git reset --hard origin/${{ github.ref_name }}
+              cd $HOME/artififi || {
+                echo "❌ Cannot cd to artififi directory!"
+                exit 1
+              }
+              git fetch origin || {
+                echo "❌ Git fetch failed!"
+                exit 1
+              }
+              git reset --hard origin/${{ github.ref_name }} || {
+                echo "❌ Git reset failed!"
+                exit 1
+              }
             fi
+            
+            echo "✅ Repository ready at: $(pwd)"
+            echo "📋 Repository status:"
+            git status --short
+            echo "📋 Current branch: $(git branch --show-current)"
             
             # Create production environment file
             echo "📝 Creating production environment configuration..."
