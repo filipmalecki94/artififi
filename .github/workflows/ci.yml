@@ -41,15 +41,71 @@ jobs:
           docker compose -f docker-compose.yml ps
           echo "✅ Containers started successfully"
 
+      # Setup environment and install dependencies
+      - name: Setup environment
+        run: |
+          echo "⚙️ Setting up CI environment..."
+          echo "Creating .env file for CI..."
+          # Create complete .env file for CI
+          cat > .env.ci << EOF
+          # Symfony Core
+          APP_ENV=test
+          APP_SECRET=test-secret-key-for-ci-12345678901234567890
+          
+          # Database
+          DATABASE_URL=mysql://user:user@mysql:3306/sword_app
+          
+          # Mailer
+          MAILER_DSN=null://null
+          
+          # Messenger (for async processing)
+          MESSENGER_TRANSPORT_DSN=doctrine://default
+          
+          # Debug (optional for CI)
+          VAR_DUMPER_SERVER=127.0.0.1:9912
+          
+          # WordPress Integration (from docker-compose)
+          WORDPRESS_SITE_URL=https://test.localhost
+          WORDPRESS_DB_NAME=sword_app
+          WORDPRESS_DB_USER=user
+          WORDPRESS_DB_PASSWORD=user
+          WORDPRESS_DB_HOST=mysql
+          WORDPRESS_AUTH_KEY=test-auth-key-for-ci
+          WORDPRESS_SECURE_AUTH_KEY=test-secure-auth-key-for-ci
+          WORDPRESS_LOGGED_IN_KEY=test-logged-in-key-for-ci
+          WORDPRESS_NONCE_KEY=test-nonce-key-for-ci
+          WORDPRESS_AUTH_SALT=test-auth-salt-for-ci
+          WORDPRESS_SECURE_AUTH_SALT=test-secure-auth-salt-for-ci
+          WORDPRESS_LOGGED_IN_SALT=test-logged-in-salt-for-ci
+          WORDPRESS_NONCE_SALT=test-nonce-salt-for-ci
+          WORDPRESS_DEBUG=false
+          WORDPRESS_DEBUG_DISPLAY=false
+          EOF
+          docker compose -f docker-compose.yml cp .env.ci php:/var/www/html/.env
+          echo "🔧 Configuring Git safe directory..."
+          docker compose -f docker-compose.yml exec -T php git config --global --add safe.directory /var/www/html || true
+          echo "📁 Verifying environment setup..."
+          docker compose -f docker-compose.yml exec -T php ls -la .env
+          echo "✅ Environment setup completed"
+
       # Composer install w kontenerze php
       - name: Install dependencies
         run: |
           echo "📦 Installing PHP dependencies..."
           echo "Running composer install in PHP container..."
-          docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist --verbose
+          docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist --no-scripts
           echo "📋 Checking installed packages:"
           docker compose -f docker-compose.yml exec -T php composer show --direct
           echo "✅ Dependencies installed successfully"
+
+      - name: Run Composer scripts
+        run: |
+          echo "🔧 Running Composer post-install scripts..."
+          echo "Clearing Symfony cache..."
+          docker compose -f docker-compose.yml exec -T php php bin/console cache:clear --env=test || true
+          echo "Warming up cache..."
+          docker compose -f docker-compose.yml exec -T php php bin/console cache:warmup --env=test || true
+          echo "✅ Post-install scripts completed"
 
       # Static analysis
       - name: Run PHPStan
@@ -82,6 +138,7 @@ jobs:
           echo "🛑 Stopping and cleaning up containers..."
           echo "Stopping all containers and removing volumes..."
           docker compose -f docker-compose.yml down -v
-          echo "🧹 Cleaning up Docker system..."
+          echo "🧹 Cleaning up temporary files..."
+          rm -f .env.ci
           docker system prune -f
           echo "✅ Cleanup completed successfully"
