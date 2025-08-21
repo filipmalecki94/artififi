@@ -1,0 +1,323 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Job 1: Run tests first (reuse existing CI logic)
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Cache vendor (Composer)
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      # Build only potrzebne serwisy (php + mysql)
+      - name: Build Docker images
+        run: |
+          echo "🏗️ Building Docker images for testing..."
+          docker compose -f docker-compose.yml build php mysql
+
+      - name: Start containers
+        run: |
+          echo "🚀 Starting containers for testing..."
+          docker compose -f docker-compose.yml up -d php mysql
+          sleep 10
+
+      # Setup environment and install dependencies
+      - name: Setup environment
+        run: |
+          echo "⚙️ Setting up CI environment..."
+          cat > .env.ci << EOF
+          APP_ENV=test
+          APP_SECRET=test-secret-key-for-ci-12345678901234567890
+          DATABASE_URL=mysql://user:user@mysql:3306/sword_app
+          MAILER_DSN=null://null
+          MESSENGER_TRANSPORT_DSN=doctrine://default
+          VAR_DUMPER_SERVER=127.0.0.1:9912
+          WORDPRESS_SITE_URL=https://test.localhost
+          WORDPRESS_DB_NAME=sword_app
+          WORDPRESS_DB_USER=user
+          WORDPRESS_DB_PASSWORD=user
+          WORDPRESS_DB_HOST=mysql
+          WORDPRESS_AUTH_KEY=test-auth-key-for-ci
+          WORDPRESS_SECURE_AUTH_KEY=test-secure-auth-key-for-ci
+          WORDPRESS_LOGGED_IN_KEY=test-logged-in-key-for-ci
+          WORDPRESS_NONCE_KEY=test-nonce-key-for-ci
+          WORDPRESS_AUTH_SALT=test-auth-salt-for-ci
+          WORDPRESS_SECURE_AUTH_SALT=test-secure-auth-salt-for-ci
+          WORDPRESS_LOGGED_IN_SALT=test-logged-in-salt-for-ci
+          WORDPRESS_NONCE_SALT=test-nonce-salt-for-ci
+          WORDPRESS_DEBUG=false
+          WORDPRESS_DEBUG_DISPLAY=false
+          EOF
+          docker compose -f docker-compose.yml cp .env.ci php:/var/www/html/.env
+
+      - name: Install dependencies
+        run: |
+          echo "📦 Installing PHP dependencies..."
+          docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist --no-scripts
+
+      - name: Run Composer scripts
+        run: |
+          echo "🔧 Running Composer post-install scripts..."
+          docker compose -f docker-compose.yml exec -T php php bin/console cache:clear --env=test || true
+          docker compose -f docker-compose.yml exec -T php php bin/console cache:warmup --env=test || true
+
+      - name: Run PHPStan
+        run: |
+          echo "🔍 Running PHPStan static analysis..."
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpstan analyse --memory-limit=512M
+
+      - name: Run PHPUnit
+        run: |
+          echo "🧪 Running PHPUnit tests..."
+          docker compose -f docker-compose.yml exec -T php vendor/bin/phpunit --testdox --verbose
+
+      - name: Stop containers
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml down -v
+          rm -f .env.ci
+          docker system prune -f
+
+  # Job 2: Build and push Docker images
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for PHP image
+        id: meta-php
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for Nginx image
+        id: meta-nginx
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push PHP image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/dk.php.Dockerfile
+          push: true
+          tags: ${{ steps.meta-php.outputs.tags }}
+          labels: ${{ steps.meta-php.outputs.labels }}
+          build-args: |
+            PHP_VERSION=8.1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Nginx image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/dk.nginx.Dockerfile
+          push: true
+          tags: ${{ steps.meta-nginx.outputs.tags }}
+          labels: ${{ steps.meta-nginx.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 3: Deploy to production
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ vars.APP_URL }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup deployment environment
+        run: |
+          echo "🚀 Preparing deployment to ${{ github.event.inputs.environment || 'production' }}..."
+          echo "DEPLOY_ENV=${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+
+
+
+      - name: Deploy via SSH
+        if: ${{ secrets.DEPLOY_HOST && secrets.DEPLOY_USER && secrets.DEPLOY_KEY }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          script: |
+            echo "🚀 Starting deployment on production server..."
+            
+            # Create deployment directory and clone/update repository
+            if [ ! -d "~/artififi" ]; then
+              echo "📥 Cloning repository..."
+              git clone ${{ github.server_url }}/${{ github.repository }}.git ~/artififi
+              cd ~/artififi
+            else
+              echo "📥 Updating repository..."
+              cd ~/artififi
+              git fetch origin
+              git reset --hard origin/${{ github.ref_name }}
+            fi
+            
+            # Create production environment file
+            echo "📝 Creating production environment configuration..."
+            cat > .env.prod << EOF
+            # Symfony Core
+            APP_ENV=prod
+            APP_SECRET=${{ secrets.APP_SECRET }}
+            
+            # Database
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            
+            # Mailer
+            MAILER_DSN=${{ secrets.MAILER_DSN }}
+            
+            # Messenger
+            MESSENGER_TRANSPORT_DSN=${{ secrets.MESSENGER_TRANSPORT_DSN }}
+            
+            # WordPress Integration
+            WORDPRESS_SITE_URL=${{ vars.WORDPRESS_SITE_URL }}
+            WORDPRESS_DB_NAME=${{ secrets.WORDPRESS_DB_NAME }}
+            WORDPRESS_DB_USER=${{ secrets.WORDPRESS_DB_USER }}
+            WORDPRESS_DB_PASSWORD=${{ secrets.WORDPRESS_DB_PASSWORD }}
+            WORDPRESS_DB_HOST=${{ secrets.WORDPRESS_DB_HOST }}
+            WORDPRESS_AUTH_KEY=${{ secrets.WORDPRESS_AUTH_KEY }}
+            WORDPRESS_SECURE_AUTH_KEY=${{ secrets.WORDPRESS_SECURE_AUTH_KEY }}
+            WORDPRESS_LOGGED_IN_KEY=${{ secrets.WORDPRESS_LOGGED_IN_KEY }}
+            WORDPRESS_NONCE_KEY=${{ secrets.WORDPRESS_NONCE_KEY }}
+            WORDPRESS_AUTH_SALT=${{ secrets.WORDPRESS_AUTH_SALT }}
+            WORDPRESS_SECURE_AUTH_SALT=${{ secrets.WORDPRESS_SECURE_AUTH_SALT }}
+            WORDPRESS_LOGGED_IN_SALT=${{ secrets.WORDPRESS_LOGGED_IN_SALT }}
+            WORDPRESS_NONCE_SALT=${{ secrets.WORDPRESS_NONCE_SALT }}
+            WORDPRESS_DEBUG=false
+            WORDPRESS_DEBUG_DISPLAY=false
+            
+            # Docker Images
+            PHP_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php:${{ github.sha }}
+            NGINX_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx:${{ github.sha }}
+            EOF
+            
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+            
+            # Pull latest images
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php:${{ github.sha }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx:${{ github.sha }}
+            
+            # Stop existing containers
+            docker-compose -f docker-compose.prod.yml down || true
+            
+            # Start new containers
+            docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+            
+            # Wait for containers to be ready
+            sleep 30
+            
+            # Run post-deployment commands
+            docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
+            docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod
+            docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod
+            docker-compose -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || true
+            
+            # Cleanup old images
+            docker image prune -f
+            
+            echo "✅ Deployment completed successfully!"
+
+
+
+
+
+      # Health check
+      - name: Health Check
+        run: |
+          echo "🏥 Running post-deployment health checks..."
+          
+          # Wait a bit for services to be fully up
+          sleep 60
+          
+          # Basic connectivity test (adjust URL as needed)
+          if [ -n "${{ vars.APP_URL }}" ]; then
+            echo "Testing application health at ${{ vars.APP_URL }}"
+            curl -f -s -o /dev/null ${{ vars.APP_URL }}/health || curl -f -s -o /dev/null ${{ vars.APP_URL }} || {
+              echo "❌ Health check failed!"
+              exit 1
+            }
+            echo "✅ Application is responding correctly"
+          else
+            echo "⚠️  APP_URL not configured, skipping HTTP health check"
+          fi
+
+      # Notification
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "🎉 Deployment to ${{ env.DEPLOY_ENV }} completed successfully!"
+          echo "🔗 Application URL: ${{ vars.APP_URL }}"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "👤 Deployed by: ${{ github.actor }}"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Deployment to ${{ env.DEPLOY_ENV }} failed!"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "👤 Attempted by: ${{ github.actor }}"
+          exit 1
