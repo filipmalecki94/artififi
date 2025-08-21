@@ -149,13 +149,47 @@ jobs:
               echo "❌ Docker is not installed!"
               exit 1
             fi
-            echo "✅ Docker version: $(docker --version)"
+            echo "✅ Docker found: $(which docker)"
+            
+            # Test Docker permissions
+            echo "🔐 Testing Docker permissions..."
+            if docker version >/dev/null 2>&1; then
+              echo "✅ Docker is accessible"
+              echo "📋 Docker version: $(docker --version)"
+            else
+              echo "❌ Docker permission denied. User may not be in docker group."
+              echo "👤 Current user: $(whoami)"
+              echo "👥 User groups: $(groups)"
+              echo "🔧 Attempting to add user to docker group..."
+              sudo usermod -aG docker $(whoami) || echo "❌ Failed to add user to docker group"
+              echo "🔄 You may need to logout and login again, or restart the session"
+              # Try with sudo as temporary fix
+              if sudo docker version >/dev/null 2>&1; then
+                echo "✅ Docker works with sudo"
+                echo "⚠️  Using sudo for Docker commands"
+                DOCKER_CMD="sudo docker"
+                DOCKER_COMPOSE_CMD="sudo docker-compose"
+              else
+                echo "❌ Docker doesn't work even with sudo"
+                exit 1
+              fi
+            fi
             
             if ! command -v docker-compose >/dev/null 2>&1; then
               echo "❌ Docker Compose is not installed!"
               exit 1
             fi
-            echo "✅ Docker Compose version: $(docker-compose --version)"
+            echo "✅ Docker Compose found: $(which docker-compose)"
+            
+            # Test Docker Compose permissions  
+            echo "🔐 Testing Docker Compose permissions..."
+            if ${DOCKER_COMPOSE_CMD:-docker-compose} version >/dev/null 2>&1; then
+              echo "✅ Docker Compose is accessible"
+              echo "📋 Docker Compose version: $(${DOCKER_COMPOSE_CMD:-docker-compose} --version)"
+            else
+              echo "❌ Docker Compose permission denied"
+              exit 1
+            fi
             
             # Create deployment directory and clone/update repository
             echo "📁 Managing repository..."
@@ -236,33 +270,33 @@ jobs:
             
             # Create base PHP image if it doesn't exist
             echo "🏗️ Preparing base PHP image..."
-            if ! docker image inspect ghcr.io/phpsword/php:8.1 >/dev/null 2>&1; then
+            if ! ${DOCKER_CMD:-docker} image inspect ghcr.io/phpsword/php:8.1 >/dev/null 2>&1; then
               echo "Base image not found, creating from php:8.1-fpm..."
-              docker pull php:8.1-fpm
-              docker tag php:8.1-fpm ghcr.io/phpsword/php:8.1
+              ${DOCKER_CMD:-docker} pull php:8.1-fpm
+              ${DOCKER_CMD:-docker} tag php:8.1-fpm ghcr.io/phpsword/php:8.1
             fi
             
             # Build Docker images using docker-compose
             echo "🏗️ Building application images..."
-            docker-compose -f docker-compose.prod.yml build
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml build
             
             # Stop existing containers
-            docker-compose -f docker-compose.prod.yml down || true
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml down || true
             
             # Start new containers
-            docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml --env-file .env.prod up -d
             
             # Wait for containers to be ready
             sleep 30
             
             # Run post-deployment commands
-            docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
-            docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod
-            docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod
-            docker-compose -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || true
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod
+            ${DOCKER_COMPOSE_CMD:-docker-compose} -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || true
             
             # Cleanup old images
-            docker image prune -f
+            ${DOCKER_CMD:-docker} image prune -f
             
             echo "✅ Deployment completed successfully!"
 
