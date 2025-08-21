@@ -289,13 +289,30 @@ jobs:
             echo "✅ Environment file created at: $(pwd)/.env.prod"
             
             # Stop only project-related containers from previous deployments
-            echo "🛑 Stopping artififi project containers..."
-            docker ps --filter "name=artififi" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No project containers to stop"
-            docker ps -a --filter "name=artififi" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No project containers to remove"
+            echo "🛑 Stopping all project containers..."
+            
+            # Stop containers by name patterns (artififi, timestamps, traefik on port 443)
+            docker ps --filter "name=artififi" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No artififi containers to stop"
+            docker ps --filter "name=traefik" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No traefik containers to stop"
+            docker ps --filter "publish=80" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No containers on port 80 to stop"
+            docker ps --filter "publish=443" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || echo "No containers on port 443 to stop"
+            
+            # Remove stopped containers
+            docker ps -a --filter "name=artififi" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No artififi containers to remove"
+            docker ps -a --filter "name=traefik" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No traefik containers to remove"
+            docker ps -a --filter "publish=80" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No port 80 containers to remove"
+            docker ps -a --filter "publish=443" --format "{{.ID}}" | xargs -r docker rm 2>/dev/null || echo "No port 443 containers to remove"
+            
+            # Also remove any containers with timestamp pattern (our release containers)
+            docker ps -a --format "{{.Names}} {{.ID}}" | grep -E "^[0-9]{8}_[0-9]{6}_" | awk '{print $2}' | xargs -r docker rm -f 2>/dev/null || echo "No timestamp containers to remove"
             
             # Clean up project-specific Docker networks
             echo "🌐 Cleaning up project Docker networks..."
-            docker network ls --filter name=artififi --format "{{.Name}}" | xargs -r docker network rm 2>/dev/null || echo "No project networks to remove"
+            docker network ls --filter name=artififi --format "{{.Name}}" | xargs -r docker network rm 2>/dev/null || echo "No artififi networks to remove"
+            
+            # Clean up networks with timestamp pattern (our release networks)
+            docker network ls --format "{{.Name}}" | grep -E "^[0-9]{8}_[0-9]{6}_" | xargs -r docker network rm 2>/dev/null || echo "No timestamp networks to remove"
+            
             # Also clean up any orphaned networks
             docker network prune -f 2>/dev/null || echo "No orphaned networks to remove"
             
