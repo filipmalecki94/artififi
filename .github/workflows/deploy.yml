@@ -12,9 +12,7 @@ on:
           - production
           - staging
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+# No need for registry variables since we build locally
 
 jobs:
   # Job 1: Run tests first (reuse existing CI logic)
@@ -101,80 +99,9 @@ jobs:
           rm -f .env.ci
           docker system prune -f
 
-  # Job 2: Build and push Docker images
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-      image-digest: ${{ steps.build.outputs.digest }}
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for PHP image
-        id: meta-php
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Extract metadata for Nginx image
-        id: meta-nginx
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push PHP image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./docker/dk.php.Dockerfile
-          push: true
-          tags: ${{ steps.meta-php.outputs.tags }}
-          labels: ${{ steps.meta-php.outputs.labels }}
-          build-args: |
-            PHP_VERSION=8.1
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Nginx image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./docker/dk.nginx.Dockerfile
-          push: true
-          tags: ${{ steps.meta-nginx.outputs.tags }}
-          labels: ${{ steps.meta-nginx.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # Job 3: Deploy to production
+  # Job 2: Deploy to production
   deploy:
-    needs: [test, build]
+    needs: [test]
     runs-on: ubuntu-latest
     environment: 
       name: ${{ github.event.inputs.environment || 'production' }}
@@ -261,17 +188,22 @@ jobs:
             # Production Domain for Traefik
             PRODUCTION_DOMAIN=${{ vars.APP_DOMAIN }}
             
-            # Docker Images
-            PHP_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php:${{ github.sha }}
-            NGINX_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx:${{ github.sha }}
+            # Docker Images (built locally)
+            PHP_IMAGE=artififi-php:latest
+            NGINX_IMAGE=artififi-nginx:latest
             EOF
             
-            # Login to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+            # Create base PHP image if it doesn't exist
+            echo "🏗️ Preparing base PHP image..."
+            if ! docker image inspect ghcr.io/phpsword/php:8.1 >/dev/null 2>&1; then
+              echo "Base image not found, creating from php:8.1-fpm..."
+              docker pull php:8.1-fpm
+              docker tag php:8.1-fpm ghcr.io/phpsword/php:8.1
+            fi
             
-            # Pull latest images
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-php:${{ github.sha }}
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-nginx:${{ github.sha }}
+            # Build Docker images using docker-compose
+            echo "🏗️ Building application images..."
+            docker-compose -f docker-compose.prod.yml build
             
             # Stop existing containers
             docker-compose -f docker-compose.prod.yml down || true

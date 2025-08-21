@@ -2,7 +2,12 @@ version: "3.8"
 
 services:
     php:
-        image: '${PHP_IMAGE:-changeme/changeme-php:staging}'
+        build:
+            context: .
+            dockerfile: docker/dk.php.Dockerfile
+            args:
+                PHP_VERSION: 8.1
+        image: '${PHP_IMAGE:-artififi-php:latest}'
         restart: unless-stopped
         env_file:
             - .env.prod
@@ -12,7 +17,10 @@ services:
             - app-uploads:/var/www/html/public/uploads
 
     nginx:
-        image: '${NGINX_IMAGE:-changeme/changeme-nginx:staging}'
+        build:
+            context: .
+            dockerfile: docker/dk.nginx.Dockerfile
+        image: '${NGINX_IMAGE:-artififi-nginx:latest}'
         restart: unless-stopped
         volumes:
             - ./public:/var/www/html/public:ro
