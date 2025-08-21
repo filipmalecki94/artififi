@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" , "develop"]
+  pull_request:
+    branches: [ "master" , "develop"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Cache vendor (Composer)
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      # Build only potrzebne serwisy (php + mysql)
+      - name: Build Docker images
+        run: docker compose -f docker-compose.yml build php mysql
+
+      - name: Start containers
+        run: docker compose -f docker-compose.yml up -d php mysql
+
+      # Composer install w kontenerze php
+      - name: Install dependencies
+        run: docker compose -f docker-compose.yml exec -T php composer install --no-interaction --prefer-dist
+
+      # Static analysis
+      - name: Run PHPStan
+        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpstan analyse --memory-limit=512M
+
+      - name: Run PHPCS
+        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpcs --standard=WordPress --extensions=php src/ wp/
+
+      # PHPUnit
+      - name: Run PHPUnit
+        run: docker compose -f docker-compose.yml exec -T php vendor/bin/phpunit --testdox
+
+      - name: Stop containers
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
