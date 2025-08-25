@@ -36,7 +36,6 @@ wp/content/themes/twenty*
 /.env
 /.env.test
 composer.phar
-composer.lock
 /build/
 /node_modules/
 /.idea/
