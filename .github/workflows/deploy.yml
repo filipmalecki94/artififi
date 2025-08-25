@@ -244,48 +244,46 @@ jobs:
             
             # Create production environment file in the new release directory
             echo "📝 Creating production environment configuration..."
-            cat > .env << EOF
-            # Symfony Core
-            APP_ENV=prod
-            APP_SECRET=${{ secrets.APP_SECRET }}
-            
-            # Database
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            
-            # Mailer
-            MAILER_DSN=${{ secrets.MAILER_DSN }}
-            
-            # Messenger
-            MESSENGER_TRANSPORT_DSN=${{ secrets.MESSENGER_TRANSPORT_DSN }}
-            
-            # WordPress Integration
-            WORDPRESS_SITE_URL=${{ vars.WORDPRESS_SITE_URL }}
-            WORDPRESS_DB_NAME=${{ secrets.WORDPRESS_DB_NAME }}
-            WORDPRESS_DB_USER=${{ secrets.WORDPRESS_DB_USER }}
-            WORDPRESS_DB_PASSWORD=${{ secrets.WORDPRESS_DB_PASSWORD }}
-            WORDPRESS_DB_HOST=${{ secrets.WORDPRESS_DB_HOST }}
-            WORDPRESS_AUTH_KEY=${{ secrets.WORDPRESS_AUTH_KEY }}
-            WORDPRESS_SECURE_AUTH_KEY=${{ secrets.WORDPRESS_SECURE_AUTH_KEY }}
-            WORDPRESS_LOGGED_IN_KEY=${{ secrets.WORDPRESS_LOGGED_IN_KEY }}
-            WORDPRESS_NONCE_KEY=${{ secrets.WORDPRESS_NONCE_KEY }}
-            WORDPRESS_AUTH_SALT=${{ secrets.WORDPRESS_AUTH_SALT }}
-            WORDPRESS_SECURE_AUTH_SALT=${{ secrets.WORDPRESS_SECURE_AUTH_SALT }}
-            WORDPRESS_LOGGED_IN_SALT=${{ secrets.WORDPRESS_LOGGED_IN_SALT }}
-            WORDPRESS_NONCE_SALT=${{ secrets.WORDPRESS_NONCE_SALT }}
-            WORDPRESS_DEBUG=false
-            WORDPRESS_DEBUG_DISPLAY=false
-            
-            # Database Root Password
-            MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
-            
-            # Production Domain for Traefik
-            APP_NAME=artififi
-            PROJECT_DIR=artififi
-            
-            # Docker Images (built locally)
-            PHP_IMAGE=artififi-php:latest
-            NGINX_IMAGE=artififi-nginx:latest
-            EOF
+            echo "# Symfony Core" > .env
+            echo "APP_ENV=prod" >> .env
+            echo "APP_SECRET=\"${{ secrets.APP_SECRET }}\"" >> .env
+            echo "" >> .env
+            echo "# Database" >> .env
+            echo "DATABASE_URL=\"${{ secrets.DATABASE_URL }}\"" >> .env
+            echo "" >> .env
+            echo "# Mailer" >> .env
+            echo "MAILER_DSN=\"${{ secrets.MAILER_DSN }}\"" >> .env
+            echo "" >> .env
+            echo "# Messenger" >> .env
+            echo "MESSENGER_TRANSPORT_DSN=\"${{ secrets.MESSENGER_TRANSPORT_DSN }}\"" >> .env
+            echo "" >> .env
+            echo "# WordPress Integration" >> .env
+            echo "WORDPRESS_SITE_URL=\"${{ vars.WORDPRESS_SITE_URL }}\"" >> .env
+            echo "WORDPRESS_DB_NAME=\"${{ secrets.WORDPRESS_DB_NAME }}\"" >> .env
+            echo "WORDPRESS_DB_USER=\"${{ secrets.WORDPRESS_DB_USER }}\"" >> .env
+            echo "WORDPRESS_DB_PASSWORD=\"${{ secrets.WORDPRESS_DB_PASSWORD }}\"" >> .env
+            echo "WORDPRESS_DB_HOST=\"${{ secrets.WORDPRESS_DB_HOST }}\"" >> .env
+            echo "WORDPRESS_AUTH_KEY=\"${{ secrets.WORDPRESS_AUTH_KEY }}\"" >> .env
+            echo "WORDPRESS_SECURE_AUTH_KEY=\"${{ secrets.WORDPRESS_SECURE_AUTH_KEY }}\"" >> .env
+            echo "WORDPRESS_LOGGED_IN_KEY=\"${{ secrets.WORDPRESS_LOGGED_IN_KEY }}\"" >> .env
+            echo "WORDPRESS_NONCE_KEY=\"${{ secrets.WORDPRESS_NONCE_KEY }}\"" >> .env
+            echo "WORDPRESS_AUTH_SALT=\"${{ secrets.WORDPRESS_AUTH_SALT }}\"" >> .env
+            echo "WORDPRESS_SECURE_AUTH_SALT=\"${{ secrets.WORDPRESS_SECURE_AUTH_SALT }}\"" >> .env
+            echo "WORDPRESS_LOGGED_IN_SALT=\"${{ secrets.WORDPRESS_LOGGED_IN_SALT }}\"" >> .env
+            echo "WORDPRESS_NONCE_SALT=\"${{ secrets.WORDPRESS_NONCE_SALT }}\"" >> .env
+            echo "WORDPRESS_DEBUG=false" >> .env
+            echo "WORDPRESS_DEBUG_DISPLAY=false" >> .env
+            echo "" >> .env
+            echo "# Database Root Password" >> .env
+            echo "MYSQL_ROOT_PASSWORD=\"${{ secrets.MYSQL_ROOT_PASSWORD }}\"" >> .env
+            echo "" >> .env
+            echo "# Production Domain for Traefik" >> .env
+            echo "APP_NAME=artififi" >> .env
+            echo "PROJECT_DIR=artififi" >> .env
+            echo "" >> .env
+            echo "# Docker Images (built locally)" >> .env
+            echo "PHP_IMAGE=artififi-php:latest" >> .env
+            echo "NGINX_IMAGE=artififi-nginx:latest" >> .env
             
             # Set production environment variables
             export WORDPRESS_SITE_URL="${{ vars.WORDPRESS_SITE_URL }}"
