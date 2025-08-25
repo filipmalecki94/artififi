@@ -242,10 +242,10 @@ jobs:
             echo "DEPLOY_DIR=$DEPLOY_DIR" >> ~/.deploy_vars
             echo "TIMESTAMP=$TIMESTAMP" >> ~/.deploy_vars
             
-            # Create production environment file in the new release directory
-            echo "📝 Creating production environment configuration..."
+            # Create development environment file in the new release directory
+            echo "📝 Creating development environment configuration..."
             echo "# Symfony Core" > .env
-            echo "APP_ENV=prod" >> .env
+            echo "APP_ENV=dev" >> .env
             echo "APP_SECRET=\"${{ secrets.APP_SECRET }}\"" >> .env
             echo "" >> .env
             echo "# Database" >> .env
@@ -413,13 +413,32 @@ jobs:
             echo "📦 Setting up PHP dependencies..."
             cd "$DEPLOY_DIR"
             
+            # Wait for PHP container to be fully ready
+            echo "⏳ Waiting for PHP container to be ready..."
+            sleep 10
+            
+            # Check if PHP container is running
+            if ! docker-compose -f docker-compose.yml exec -T php php --version >/dev/null 2>&1; then
+              echo "❌ PHP container is not ready, waiting longer..."
+              sleep 20
+              if ! docker-compose -f docker-compose.yml exec -T php php --version >/dev/null 2>&1; then
+                echo "❌ PHP container failed to start properly"
+                exit 1
+              fi
+            fi
+            echo "✅ PHP container is ready"
+            
             # Install Composer if not present
             if ! docker-compose -f docker-compose.yml exec -T php which composer >/dev/null 2>&1; then
               echo "🎵 Installing Composer..."
+              # Try to install Composer
               docker-compose -f docker-compose.yml exec -T php sh -c "curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
                 echo "⚠️ Composer installation failed, trying alternative method..."
                 docker-compose -f docker-compose.yml exec -T php sh -c "wget -O - https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
-                  echo "❌ Could not install Composer, skipping dependency installation"
+                  echo "⚠️ Alternative installation failed, trying direct download..."
+                  docker-compose -f docker-compose.yml exec -T php sh -c "wget https://getcomposer.org/composer-stable.phar -O /usr/local/bin/composer && chmod +x /usr/local/bin/composer" || {
+                    echo "❌ Could not install Composer, skipping dependency installation"
+                  }
                 }
               }
             else
@@ -429,16 +448,56 @@ jobs:
             # Install dependencies if composer is available
             if docker-compose -f docker-compose.yml exec -T php which composer >/dev/null 2>&1; then
               echo "📥 Installing PHP dependencies..."
-              docker-compose -f docker-compose.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction || {
-                echo "⚠️ Composer install failed, but continuing..."
-              }
+              
+              # Check if composer.json exists
+              if ! docker-compose -f docker-compose.yml exec -T php test -f composer.json; then
+                echo "❌ composer.json not found in container"
+                exit 1
+              fi
+              
+              # Clear any existing vendor directory issues
+              docker-compose -f docker-compose.yml exec -T php rm -rf vendor/composer/tmp-* 2>/dev/null || true
+              
+              # Run composer install with better error handling
+              echo "📋 Running composer install..."
+              if docker-compose -f docker-compose.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction --verbose; then
+                echo "✅ Composer install completed successfully"
+              else
+                echo "⚠️ Composer install failed, trying with --no-scripts..."
+                if docker-compose -f docker-compose.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction --no-scripts; then
+                  echo "✅ Composer install completed without scripts"
+                  # Try to run scripts separately
+                  echo "🔧 Running composer scripts manually..."
+                  docker-compose -f docker-compose.yml exec -T php composer run-script post-install-cmd --no-interaction || echo "⚠️ Post-install scripts failed"
+                else
+                  echo "❌ Composer install failed completely, but continuing..."
+                fi
+              fi
+            else
+              echo "❌ Composer not available, skipping dependency installation"
             fi
             # Run Symfony commands if console is available
             if docker-compose -f docker-compose.yml exec -T php sh -c '[ -f bin/console ]' >/dev/null 2>&1; then
               echo "🎛️ Running Symfony console commands..."
-              docker-compose -f docker-compose.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
-              docker-compose -f docker-compose.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
-              docker-compose -f docker-compose.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
+              
+              # Check if vendor/autoload.php exists (needed for Symfony commands)
+              if ! docker-compose -f docker-compose.yml exec -T php test -f vendor/autoload.php; then
+                echo "⚠️ vendor/autoload.php not found, skipping Symfony commands"
+              else
+                echo "🧩 Clearing Symfony cache..."
+                if docker-compose -f docker-compose.yml exec -T php php bin/console cache:clear --env=dev --no-interaction; then
+                  echo "✅ Cache cleared successfully"
+                else
+                  echo "⚠️ Cache clear failed, trying to remove cache manually..."
+                  docker-compose -f docker-compose.yml exec -T php rm -rf var/cache/dev/* || true
+                fi
+                
+                echo "🔥 Warming up Symfony cache..."
+                docker-compose -f docker-compose.yml exec -T php php bin/console cache:warmup --env=dev --no-interaction || echo "⚠️ Cache warmup failed"
+                
+                echo "📋 Running database migrations..."
+                docker-compose -f docker-compose.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
+              fi
             else
               echo "⚠️ Symfony console not found, skipping console commands"
             fi
