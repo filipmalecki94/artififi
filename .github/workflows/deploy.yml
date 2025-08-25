@@ -244,7 +244,7 @@ jobs:
             
             # Create production environment file in the new release directory
             echo "📝 Creating production environment configuration..."
-            cat > .env.prod << EOF
+            cat > .env << EOF
             # Symfony Core
             APP_ENV=prod
             APP_SECRET=${{ secrets.APP_SECRET }}
@@ -279,14 +279,30 @@ jobs:
             MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
             
             # Production Domain for Traefik
-            PRODUCTION_DOMAIN=${{ vars.APP_DOMAIN }}
+            APP_NAME=artififi
+            PROJECT_DIR=artififi
             
             # Docker Images (built locally)
             PHP_IMAGE=artififi-php:latest
             NGINX_IMAGE=artififi-nginx:latest
             EOF
             
-            echo "✅ Environment file created at: $(pwd)/.env.prod"
+            # Set production environment variables
+            export WORDPRESS_SITE_URL="${{ vars.WORDPRESS_SITE_URL }}"
+            export WORDPRESS_DB_NAME="${{ secrets.WORDPRESS_DB_NAME }}"
+            export WORDPRESS_DB_USER="${{ secrets.WORDPRESS_DB_USER }}"
+            export WORDPRESS_DB_PASSWORD="${{ secrets.WORDPRESS_DB_PASSWORD }}"
+            export WORDPRESS_AUTH_KEY="${{ secrets.WORDPRESS_AUTH_KEY }}"
+            export WORDPRESS_SECURE_AUTH_KEY="${{ secrets.WORDPRESS_SECURE_AUTH_KEY }}"
+            export WORDPRESS_LOGGED_IN_KEY="${{ secrets.WORDPRESS_LOGGED_IN_KEY }}"
+            export WORDPRESS_NONCE_KEY="${{ secrets.WORDPRESS_NONCE_KEY }}"
+            export WORDPRESS_AUTH_SALT="${{ secrets.WORDPRESS_AUTH_SALT }}"
+            export WORDPRESS_SECURE_AUTH_SALT="${{ secrets.WORDPRESS_SECURE_AUTH_SALT }}"
+            export WORDPRESS_LOGGED_IN_SALT="${{ secrets.WORDPRESS_LOGGED_IN_SALT }}"
+            export WORDPRESS_NONCE_SALT="${{ secrets.WORDPRESS_NONCE_SALT }}"
+            export MYSQL_ROOT_PASSWORD="${{ secrets.MYSQL_ROOT_PASSWORD }}"
+            
+            echo "✅ Environment files created at: $(pwd)/.env and $(pwd)/.env.prod"
             
             # Stop only project-related containers from previous deployments
             echo "🛑 Stopping all project containers..."
@@ -343,11 +359,54 @@ jobs:
             # Build Docker images using docker-compose
             echo "🏗️ Building application images..."
             cd "$DEPLOY_DIR"
-            docker-compose -f docker-compose.prod.yml build
+            docker-compose -f docker-compose.yml build
+            
+            # Create production docker-compose override for volumes and production settings
+            echo "🔧 Creating production docker-compose override..."
+            echo 'version: "3.8"' > docker-compose.override.yml
+            echo '' >> docker-compose.override.yml
+            echo 'services:' >> docker-compose.override.yml
+            echo '    php:' >> docker-compose.override.yml
+            echo '        build:' >> docker-compose.override.yml
+            echo '            args:' >> docker-compose.override.yml
+            echo '                PHP_VERSION: 8.1' >> docker-compose.override.yml
+            echo '        restart: unless-stopped' >> docker-compose.override.yml
+            echo '        volumes:' >> docker-compose.override.yml
+            echo '            - ./:/var/www/html' >> docker-compose.override.yml
+            echo '            - app-data:/var/www/html/var' >> docker-compose.override.yml
+            echo '            - app-uploads:/var/www/html/public/uploads' >> docker-compose.override.yml
+            echo '' >> docker-compose.override.yml
+            echo '    nginx:' >> docker-compose.override.yml
+            echo '        restart: unless-stopped' >> docker-compose.override.yml
+            echo '        volumes:' >> docker-compose.override.yml
+            echo '            - ./public:/var/www/html/public:ro' >> docker-compose.override.yml
+            echo '            - ./wp:/var/www/html/wp:ro' >> docker-compose.override.yml
+            echo '            - app-uploads:/var/www/html/public/uploads:ro' >> docker-compose.override.yml
+            echo '        labels:' >> docker-compose.override.yml
+            echo "            - traefik.http.routers.\${APP_NAME:-sword}.rule=Host(\`${{ vars.APP_DOMAIN }}\`)" >> docker-compose.override.yml
+            echo '' >> docker-compose.override.yml
+            echo '    mysql:' >> docker-compose.override.yml
+            echo '        restart: unless-stopped' >> docker-compose.override.yml
+            echo '        environment:' >> docker-compose.override.yml
+            echo '            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}' >> docker-compose.override.yml
+            echo '            MYSQL_DATABASE: ${WORDPRESS_DB_NAME:-sword_app}' >> docker-compose.override.yml
+            echo '            MYSQL_USER: ${WORDPRESS_DB_USER:-user}' >> docker-compose.override.yml
+            echo '            MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-user}' >> docker-compose.override.yml
+            echo '' >> docker-compose.override.yml
+            echo '    traefik:' >> docker-compose.override.yml
+            echo '        restart: unless-stopped' >> docker-compose.override.yml
+            echo '' >> docker-compose.override.yml
+            echo 'volumes:' >> docker-compose.override.yml
+            echo '    app-data:' >> docker-compose.override.yml
+            echo '    app-uploads:' >> docker-compose.override.yml
             
             # Start new containers (previous containers already stopped)
             echo "🚀 Starting new containers..."
-            docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+            # Set production domain as environment variable for docker-compose
+            export APP_NAME="artififi"
+            export PROJECT_DIR="artififi"
+            # Start only production services (exclude mailer which is dev-only)
+            docker-compose -f docker-compose.yml up -d php nginx mysql traefik
             
             # Wait for containers to be ready
             sleep 30
@@ -357,11 +416,11 @@ jobs:
             cd "$DEPLOY_DIR"
             
             # Install Composer if not present
-            if ! docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
+            if ! docker-compose -f docker-compose.yml exec -T php which composer >/dev/null 2>&1; then
               echo "🎵 Installing Composer..."
-              docker-compose -f docker-compose.prod.yml exec -T php sh -c "curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
+              docker-compose -f docker-compose.yml exec -T php sh -c "curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
                 echo "⚠️ Composer installation failed, trying alternative method..."
-                docker-compose -f docker-compose.prod.yml exec -T php sh -c "wget -O - https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
+                docker-compose -f docker-compose.yml exec -T php sh -c "wget -O - https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer" || {
                   echo "❌ Could not install Composer, skipping dependency installation"
                 }
               }
@@ -370,18 +429,18 @@ jobs:
             fi
             
             # Install dependencies if composer is available
-            if docker-compose -f docker-compose.prod.yml exec -T php which composer >/dev/null 2>&1; then
+            if docker-compose -f docker-compose.yml exec -T php which composer >/dev/null 2>&1; then
               echo "📥 Installing PHP dependencies..."
-              docker-compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction || {
+              docker-compose -f docker-compose.yml exec -T php composer install --no-dev --optimize-autoloader --no-interaction || {
                 echo "⚠️ Composer install failed, but continuing..."
               }
             fi
             # Run Symfony commands if console is available
-            if docker-compose -f docker-compose.prod.yml exec -T php sh -c '[ -f bin/console ]' >/dev/null 2>&1; then
+            if docker-compose -f docker-compose.yml exec -T php sh -c '[ -f bin/console ]' >/dev/null 2>&1; then
               echo "🎛️ Running Symfony console commands..."
-              docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
-              docker-compose -f docker-compose.prod.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
-              docker-compose -f docker-compose.prod.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
+              docker-compose -f docker-compose.yml exec -T php php bin/console cache:clear --env=prod || echo "⚠️ Cache clear failed"
+              docker-compose -f docker-compose.yml exec -T php php bin/console cache:warmup --env=prod || echo "⚠️ Cache warmup failed"
+              docker-compose -f docker-compose.yml exec -T php php bin/console doctrine:migrations:migrate --no-interaction || echo "⚠️ Migrations failed or not needed"
             else
               echo "⚠️ Symfony console not found, skipping console commands"
             fi
@@ -395,10 +454,6 @@ jobs:
             echo "🕐 Timestamp: $TIMESTAMP"
             echo "📋 Available releases:"
             ls -la $HOME/artififi/releases/ || echo "No previous releases found"
-
-
-
-
 
       # Health check
       - name: Health Check
